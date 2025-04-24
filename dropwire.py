@@ -1,6 +1,7 @@
 import os
 import webbrowser
 import requests
+import json
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
 from dotenv import load_dotenv
@@ -11,6 +12,8 @@ load_dotenv()
 CLIENT_ID = os.getenv("RAINDROP_CLIENT_ID")
 CLIENT_SECRET = os.getenv("RAINDROP_CLIENT_SECRET")
 REDIRECT_URI = "http://localhost:8000/callback"
+TEAMS_RESEARCH_WEBHOOK = os.getenv("TEAMS_RESEARCH_WEBHOOK")
+TEAMS_ARTICLE_WEBHOOK = os.getenv("TEAMS_ARTICLE_WEBHOOK")
 
 # Step 1: Generate Authorization URL
 def get_auth_url():
@@ -89,6 +92,43 @@ def fetch_raindrop_items():
         print("🏷️ Tags:", item.get("tags"))
         print("📅 Date:", item.get("created"))
         print("-" * 40)
+
+        # Determine category
+        tags = item.get("tags", [])
+        lower_tags = [tag.lower() for tag in tags]
+        if "research" in lower_tags:
+            webhook_url = TEAMS_RESEARCH_WEBHOOK
+            category = "Research"
+        elif "article" in lower_tags:
+            webhook_url = TEAMS_ARTICLE_WEBHOOK
+            category = "Article"
+        else:
+            print("❌ Skipping: no category tag (#research or #article)")
+            continue
+
+        # Determine contributor
+        contributor = "Unknown"
+        for tag in tags:
+            if tag.lower() not in ["research", "article"] and tag.lower() not in ["ai", "google", "sustainability"]:
+                contributor = tag
+                break
+
+        # Format message
+        message = {
+            "text": f"📘 *New {category} Added*\n\n"
+                    f"**Title:** [{item.get('title')}]({item.get('link')})\n"
+                    f"**Tags:** {' '.join(['#'+t for t in tags])}\n"
+                    f"**Added by:** {contributor}\n"
+                    f"**Note:** {item.get('excerpt')}"
+        }
+
+        headers = {'Content-Type': 'application/json'}
+        response = requests.post(webhook_url, data=json.dumps(message), headers=headers)
+
+        if response.status_code == 200:
+            print(f"✅ Sent to {category} channel")
+        else:
+            print(f"❌ Failed to post to Teams ({response.status_code}): {response.text}")
 
     return items
 
