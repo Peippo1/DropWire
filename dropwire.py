@@ -72,6 +72,11 @@ RAINDROP_TOKEN = os.getenv("RAINDROP_TOKEN")
 RAINDROP_API_URL = "https://api.raindrop.io/rest/v1/raindrops/0"  # 0 = default collection
 
 def fetch_raindrop_items():
+    COLLECTION_MAP = {
+        "YOUR_TEST_COLLECTION_ID": "Test",
+        "RESEARCH_COLLECTION_ID": "Jisc AI Research",
+        "GENERAL_COLLECTION_ID": "Jisc AI General"
+    }
     headers = {
         "Authorization": f"Bearer {RAINDROP_TOKEN}"
     }
@@ -93,17 +98,21 @@ def fetch_raindrop_items():
         print("📅 Date:", item.get("created"))
         print("-" * 40)
 
-        # Determine category
+        collection_id = str(item.get("collectionId"))
         tags = item.get("tags", [])
         lower_tags = [tag.lower() for tag in tags]
-        if "research" in lower_tags:
-            webhook_url = TEAMS_RESEARCH_WEBHOOK
+
+        if collection_id == "YOUR_TEST_COLLECTION_ID" and "dropwire_testing" in lower_tags:
+            webhook_url = os.getenv("TEAMS_LOGICAPP_ENDPOINT")
+            category = "DropWire Testing"
+        elif collection_id == "RESEARCH_COLLECTION_ID" and "research" in lower_tags:
+            webhook_url = os.getenv("TEAMS_RESEARCH_WEBHOOK")
             category = "Research"
-        elif "article" in lower_tags:
-            webhook_url = TEAMS_ARTICLE_WEBHOOK
-            category = "Article"
+        elif collection_id == "GENERAL_COLLECTION_ID" and ("article" in lower_tags or "general" in lower_tags):
+            webhook_url = os.getenv("TEAMS_ARTICLE_WEBHOOK")
+            category = "General"
         else:
-            print("❌ Skipping: no category tag (#research or #article)")
+            print("❌ Skipping: no matching collection/tag combination")
             continue
 
         # Determine contributor
@@ -113,22 +122,24 @@ def fetch_raindrop_items():
                 contributor = tag
                 break
 
-        # Format message
+        # Format payload for Logic App (Power Automate)
         message = {
-            "text": f"📘 *New {category} Added*\n\n"
-                    f"**Title:** [{item.get('title')}]({item.get('link')})\n"
-                    f"**Tags:** {' '.join(['#'+t for t in tags])}\n"
-                    f"**Added by:** {contributor}\n"
-                    f"**Note:** {item.get('excerpt')}"
+            "title": item.get("title"),
+            "url": item.get("link"),
+            "note": item.get("excerpt"),
+            "tags": tags,
+            "contributor": contributor,
+            "category": category
         }
 
+        logicapp_url = os.getenv("TEAMS_LOGICAPP_ENDPOINT")
         headers = {'Content-Type': 'application/json'}
-        response = requests.post(webhook_url, data=json.dumps(message), headers=headers)
+        response = requests.post(logicapp_url, data=json.dumps(message), headers=headers)
 
         if response.status_code == 200:
-            print(f"✅ Sent to {category} channel")
+            print(f"✅ Sent to {category} workflow")
         else:
-            print(f"❌ Failed to post to Teams ({response.status_code}): {response.text}")
+            print(f"❌ Failed to post to Logic App ({response.status_code}): {response.text}")
 
     return items
 
